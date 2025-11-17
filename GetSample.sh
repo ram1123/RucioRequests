@@ -1,3 +1,5 @@
+#!/bin/bash
+
 echo "--setting up the rucio environment--"
 source /cvmfs/cms.cern.ch/cmsset_default.sh
 source /cvmfs/cms.cern.ch/rucio/setup-py3.sh
@@ -7,54 +9,67 @@ echo "--setting up the voms proxy--"
 
 echo "==proxy is valid=="
 
-export RUCIO_ACCOUNT=`whoami`
+export RUCIO_ACCOUNT=$(whoami)
 
-dy1=( $(dasgoclient --query="dataset = /GluGluHToMuMu_M125_TuneCP5_PSweights_13TeV_amcatnloFXFX_pythia8/RunIIFall17MiniAODv2-PU2017_12Apr2018_94X_mc2017_realistic_v14-v1/MINIAODSIM"))
+data=()
+if [ -f "listoffiles.txt" ]; then
+    while IFS= read -r line; do
+        data+=("$line")
+    done < "listoffiles.txt"
+else
+    echo "File listoffiles.txt not found. Exiting."
+    exit 1
+fi
 
-# 2016
-dy3=( $(dasgoclient --query="dataset = /DYJetsToLL_M-105To160_VBFFilter_TuneCUETP8M1_13TeV-amcatnloFXFX-pythia8/RunIISummer16NanoAODv6-PUMoriond17_Nano25Oct2019_VBFPostMGFilter_102X_mcRun2_asymptotic_v7_ext1-v1/NANOAODSIM"))
-dy4=( $(dasgoclient --query="dataset = /DYJetsToLL_M-105To160_VBFFilter_TuneCUETP8M1_13TeV-amcatnloFXFX-pythia8/RunIISummer16NanoAODv6-PUMoriond17_Nano25Oct2019_VBFPostMGFilter_102X_mcRun2_asymptotic_v7_ext2-v1/NANOAODSIM"))
+echo "==printing files=="
+for f in "${data[@]}"; do echo "$f"; done
+echo "Total number of files: ${#data[@]}"
 
-
-dy1+=(${dy2[@]})
-dy1+=(${dy3[@]})
-dy1+=(${dy4[@]})
-
-
-
-echo "if you are only listing datasets, type list OR if you are creating container, print create"
-
+echo "Type 'list' to list files or 'create' to register in Rucio and request to Purdue:"
 read my_var
 
+SCOPE="user.${RUCIO_ACCOUNT}"
+CONTAINER_NAME="${SCOPE}:Analyses.HmumuUL2018Mis.USER"
+DATASET_NAME="${SCOPE}:Analyses.HmumuUL2018Mis.DATASET"
+
 if [ "$my_var" = "list" ]; then
-    echo "You chose to list datasets."
+    for f in "${data[@]}"; do echo "$f"; done
+
 elif [ "$my_var" = "create" ]; then
-    echo "You chose to create a container."
+    echo "You chose to create a container and dataset."
+
+    # Create container if missing
+    if ! rucio did list --did "${CONTAINER_NAME}" &> /dev/null; then
+        rucio did add --type container --did "${CONTAINER_NAME}"
+    else
+        echo "Container already exists."
+    fi
+
+    # Create dataset if missing
+    if ! rucio did list --did "${DATASET_NAME}" &> /dev/null; then
+        rucio did add --type dataset --did "${DATASET_NAME}"
+    else
+        echo "Dataset already exists."
+    fi
+
+    # Attach files to dataset
+    for f in "${data[@]}"; do
+        echo "Adding file cms:$f to dataset ${DATASET_NAME}"
+        # rucio did content add --did "cms:$f" --to "${DATASET_NAME}"
+        rucio did content add --did "cms:$f" --to "${DATASET_NAME}"
+    done
+
+    # Attach dataset to container
+    echo "Attaching dataset to container"
+    # rucio did content add --did "${DATASET_NAME}" --to "${CONTAINER_NAME}"
+    rucio did content add --did "${DATASET_NAME}" --to "${CONTAINER_NAME}"
+
+    # Create rule
+    echo "Requesting rule to copy container to T2_US_Purdue"
+    # rucio rule add --copies 1 --did "${CONTAINER_NAME}" --rse-expression "T2_US_Purdue" --ask-approval --lifetime 7776000
+    rucio rule add --copies 1 "${CONTAINER_NAME}" "T2_US_Purdue" --ask-approval --lifetime 7776000
+
+
 else
     echo "Invalid input. Please type 'list' or 'create'."
 fi
-
-
-if [ "$my_var" = "list" ]; then
-    for i in "${dy1[@]}"
-    do
-       echo "$i"
-    done
-    echo "Total number of datasets : ${#dy1[@]}"
-elif [ "$my_var" = "create" ]; then
-	echo "adding rucio container"
-
-	rucio add-container user.rasharma:/Analyses/Hmumu2025Feb14_2017/USER
-	for i in "${dy1[@]}"
-	do
-		rucio attach user.rasharma:/Analyses/Hmumu2025Feb14_2017/USER cms:$i
-	done
-	echo "Total number of datasets : ${#dy1[@]}"
-else
-	echo "Invalid input. Please check username"
-fi
-
-
-rucio add-rule --lifetime 7776000 --ask-approval  user.rasharma:/Analyses/Hmumu2025Feb14_2017/USER 1 T2_US_Purdue
-
-
