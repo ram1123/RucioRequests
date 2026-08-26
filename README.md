@@ -14,3 +14,10 @@ export X509_USER_PROXY=$(pwd)/voms_proxy.txt
 ```bash
 ./make_rucio_container.sh datasets.txt /Analyses/Hmumurun3_run3/USER T2_US_Purdue
 ```
+
+Example commands:
+
+```bash
+./make_rucio_container.sh 2025_data.txt /Analyses/Hmumurun3_run3_2025Data/USER T2_US_Purdue
+./make_rucio_container.sh 2026_data.txt /Analyses/Hmumurun3_run3_2026Data/USER T2_US_Purdue
+```

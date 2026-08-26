@@ -144,10 +144,10 @@ case "$choice" in
         echo "rucio did add --type container \"$CONTAINER\""
 
         for ds in "${unique_datasets[@]}"; do
-            echo "rucio did content add \"$CONTAINER\" \"cms:$ds\""
+            echo "rucio did content add \"cms:$ds\" --to-did \"$CONTAINER\""
         done
 
-        echo "rucio rule add --lifetime \"$LIFETIME\" --ask-approval \"$CONTAINER\" 1 \"$RSE\""
+        echo "rucio rule add \"$CONTAINER\" --copies 1 --rse-expression \"$RSE\" --lifetime \"$LIFETIME\" --ask-approval"
         ;;
 
     create)
@@ -155,40 +155,103 @@ case "$choice" in
         echo "-- creating/using Rucio container --"
         echo "$CONTAINER"
 
-        # New command replacing deprecated:
-        #   rucio add-container
-        rucio did add --type container "$CONTAINER" || true
+        tmp_log=$(mktemp)
+        set +e
+        rucio did add --type container "$CONTAINER" >"$tmp_log" 2>&1
+        rc=$?
+        set -e
+
+        cat "$tmp_log"
+
+        if grep -qiE "Data Identifier Already Exists|already exists" "$tmp_log"; then
+            echo "[INFO] Container already exists. Continuing."
+        elif [[ "$rc" -eq 0 ]]; then
+            echo "[OK] Container created."
+        else
+            echo "[ERROR] Failed to create container."
+            rm -f "$tmp_log"
+            exit 1
+        fi
+        rm -f "$tmp_log"
 
         echo
         echo "-- attaching datasets --"
+
+        n_attached=0
+        n_already=0
+        n_failed=0
+
         for ds in "${unique_datasets[@]}"; do
+            echo
             echo "[ATTACH] cms:$ds"
 
-            # New command replacing deprecated:
-            #   rucio attach
-            rucio did content add "$CONTAINER" "cms:$ds" || true
+            tmp_log=$(mktemp)
+            set +e
+            rucio did content add "cms:$ds" --to-did "$CONTAINER" >"$tmp_log" 2>&1
+            rc=$?
+            set -e
+
+            cat "$tmp_log"
+
+            if grep -qiE "already added|already exists|CONTENTS_PK|unique constraint" "$tmp_log"; then
+                echo "[INFO] Already attached. Continuing."
+                ((n_already+=1))
+            elif [[ "$rc" -eq 0 ]]; then
+                echo "[OK] Attached."
+                ((n_attached+=1))
+            else
+                echo "[ERROR] Failed to attach: cms:$ds"
+                ((n_failed+=1))
+            fi
+
+            rm -f "$tmp_log"
         done
 
         echo
-        echo "Total number of unique datasets attached/requested: ${#unique_datasets[@]}"
+        echo "Attached newly        : $n_attached"
+        echo "Already attached      : $n_already"
+        echo "Failed to attach      : $n_failed"
+        echo "Total unique datasets : ${#unique_datasets[@]}"
+
+        if [[ "$n_failed" -gt 0 ]]; then
+            echo
+            echo "[ERROR] Some datasets failed to attach. Not adding rule."
+            exit 1
+        fi
 
         echo
         echo "-- adding Rucio rule --"
 
-        # New command replacing deprecated:
-        #   rucio add-rule
-        RULE_ID=$(
-            rucio rule add \
-                --lifetime "$LIFETIME" \
-                --ask-approval \
-                "$CONTAINER" \
-                1 \
-                "$RSE"
-        )
+        tmp_rule_log=$(mktemp)
+        set +e
+        rucio rule add \
+            --copies 1 \
+            --lifetime "$LIFETIME" \
+            --rses "$RSE" \
+            --ask-approval "$CONTAINER"  >"$tmp_rule_log" 2>&1
+        rc=$?
+        set -e
+
+        cat "$tmp_rule_log"
+
+        if [[ "$rc" -eq 0 ]]; then
+            echo
+            echo "[OK] Rule added/requested."
+        elif grep -qiE "already.*rule|duplicate|already exists|Rule.*exists" "$tmp_rule_log"; then
+            echo
+            echo "[INFO] Matching rule may already exist. Continuing."
+        else
+            echo
+            echo "[ERROR] Failed to add Rucio rule."
+            rm -f "$tmp_rule_log"
+            exit 1
+        fi
+
+        rm -f "$tmp_rule_log"
 
         echo
-        echo "Rule ID: $RULE_ID"
         echo "Done."
+        echo "Check status on Rucio web UI: https://cms-rucio-webui.cern.ch/r2d2"
         ;;
 
     *)
