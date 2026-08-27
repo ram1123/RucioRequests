@@ -38,7 +38,7 @@ prompts for one of:
 Example commands:
 
 ```bash
-./make_rucio_container.sh datasetsTxtFiles/2025_2026_data.txt /Analyses/Hmumurun3_run3_2025_2026Data/USER T2_US_Purdue
+./make_rucio_container.sh datasetsTxtFiles/2025_2026_data.txt /Analyses/Hmumurun3_run3_202526Data/USER T2_US_Purdue
 ./make_rucio_container.sh datasetsTxtFiles/datasets_2022preEE.txt /Analyses/Hmumurun3_2022preEE/USER T2_US_Purdue
 ./make_rucio_container.sh datasetsTxtFiles/datasets_2023BPix.txt /Analyses/Hmumurun3_2023BPix/USER T2_US_Purdue
 ```
